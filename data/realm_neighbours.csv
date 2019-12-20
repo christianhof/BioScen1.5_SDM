@@ -1,0 +1,12 @@
+Realm,Neighbour,Neighbour2,Neighbour3,Neighbour4
+1,7,NA,NA,NA
+2,5,6,NA,NA
+3,4,8,NA,NA
+4,3,NA,NA,NA
+5,6,2,NA,NA
+6,2,5,8,10
+7,1,9,NA,NA
+8,3,11,NA,NA
+9,7,11,NA,NA
+10,6,11,NA,NA
+11,8,10,9,NA
