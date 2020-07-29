@@ -1,7 +1,7 @@
 #-#-# Add dispersal to predictions data
 
 # Load libraries
-rm(list=ls())
+rm(list=ls()); invisible(gc())
 packages <- c("raster", "readr", "rgeos", "tidyr", "sp", "ggplot2", "snowfall")
 
 new.packages <- packages[!(packages %in% installed.packages()[,"Package"])]
@@ -13,24 +13,19 @@ l <- sapply(packages, require, character.only = TRUE); rm(packages, l)
 ########################################
 
 # Set file directory
-#filedir <- "/scratch/home/mbiber/data" # shinichi
-#filedir <- "/bigdata_local/mbiber" # ceremony - Mammals
-#filedir <- "/home/mbiber/data" # ceremony - Birds
-filedir <- "/bigdata/mbiber/data" # Darkstar
+filedir <- "G:/"
 
 # Set working directory
-#setwd("/scratch/home/mbiber/GitHub/BioScen1.5_1") #shinichi
-#setwd("/home/mbiber/BioScen1.5_1") #ceremony
-setwd("/scratch/mbiber/BioScen1.5_1") #darkstar
+setwd("C:/Users/admin/Documents/GitHub/BioScen1.5_SDM") 
 
 ########################################
 
 # Set taxa
-taxa <- c("Amphibian", "Mammal", "Bird")
+taxa <- c("Amphibian", "Mammal", "Bird", "Reptile")
 i <- 3
 
 # Model type
-k <- 4; model_type <- c("GAM", "GBM", "MaxEnt", "RF")[k]
+k <- 3; model_type <- c("GAM", "GBM", "MaxEnt", "RF")[k]
 
 #-#-# Get future data #-#-#
 predpath <- paste0(filedir, "/", taxa[i], "_", model_type, "_predictions/")
@@ -43,23 +38,35 @@ spNames <- sapply(basename(modsAll), function(x){
 length(spNames)
 
 # Read AUC data
-AUC_data <- lapply(c("GAM", "GBM", "MaxEnt", "RF"), function(model_type){
-  readr::read_csv(paste0(filedir, "/AUCvalues_All_", 
-                         model_type, "_", taxa[i], ".csv"))})
-AUC_data <- do.call(rbind, AUC_data)
-
-# Aggregate the different AUC values from the 10 iterations per species
-# and filter by AUC > 0.7
-library(dplyr)
-AUC_sum <- AUC_data %>% group_by(Species, taxa, model_type) %>% 
-  summarise(mean = mean(AUC, na.rm=T)) %>% filter(mean >= 0.7) %>% ungroup() %>% 
-  group_by(Species, taxa) %>% summarise(n = n()) %>% filter(n == 4)
-
+if(taxa[i]=="Reptile"){
+  # Extract species names 
+  AUC_data <- lapply(c("GAM", "GBM"), function(model_type){
+    read.csv(paste0(filedir, "/AUCvalues_All_", 
+                    model_type, "_", taxa[i], ".csv.xz"))})
+  AUC_data <- do.call(rbind, AUC_data)
+  
+  AUC_sum <- AUC_data %>% group_by(Species, taxa, model_type) %>% 
+    dplyr::summarise(mean = mean(AUC, na.rm=T)) %>% filter(mean >= 0.7) %>% ungroup() %>% 
+    group_by(Species, taxa) %>% dplyr::summarise(n = n()) %>% filter(n == 2)
+} else{
+  # Extract species names 
+  AUC_data <- lapply(c("GAM", "GBM", "MaxEnt", "RF"), function(model_type){
+    read.csv(paste0(filedir, "/AUCvalues_All_", 
+                    model_type, "_", taxa[i], ".csv.xz"))})
+  AUC_data <- do.call(rbind, AUC_data)
+  AUC_sum <- AUC_data %>% group_by(Species, taxa, model_type) %>% 
+    dplyr::summarise(mean = mean(AUC, na.rm=T)) %>% filter(mean >= 0.7) %>% ungroup() %>% 
+    group_by(Species, taxa) %>% dplyr::summarise(n = n()) %>% filter(n == 4)
+}
 spNames <- unique(spNames[spNames %in% AUC_sum$Species])
 length(spNames)
 
 #-#-# Set filepath original distribution and future #-#-#
-SpeciesData <- paste0(filedir, "/SpeciesData/")
+if(taxa[i]=="Reptile"){
+  SpeciesData <- paste0(filedir, "/GARD_SpeciesData/")
+} else{
+  SpeciesData <- paste0(filedir, "/SpeciesData/")
+}
 resultspath <- paste0(filedir, "/", taxa[i], "_", model_type, "_results_climate/")
 if(!dir.exists(resultspath)){dir.create(resultspath)}
 
@@ -97,13 +104,13 @@ length(names_mis)
 #file.remove(corrupt_files) # Remove corrupt files
 
 #-#-# Add area size, clip and calculate loss of climatically suitable space #-#-#
-n <- ceiling(0.75*parallel::detectCores())
+n <- 10 # ceiling(0.75*parallel::detectCores())
 sfInit(parallel=TRUE, cpus=n)
 sfLibrary(raster); sfLibrary(sp); sfLibrary(dplyr); sfLibrary(tidyr)
 sfLibrary(rgeos); sfLibrary(readr)
 sfExport(list=c("area", "SpeciesData", "predpath", "resultspath", "model_type")) 
-sfLapply(sample(names_mis), function(x){
-  print(x)
+sfLapply(names_mis, function(x){
+  #print(x)
   if(!file.exists(paste0(resultspath,  x, "_", model_type, "_dispersal.csv.xz"))){
     ## Future dist
     spPred <- readr::read_csv(paste0(predpath,x,"_", model_type, "_predict.csv.xz"))

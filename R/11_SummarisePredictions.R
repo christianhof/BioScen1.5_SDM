@@ -1,7 +1,7 @@
 #' Code to summarise the model output
 
 # Load dplyr package
-rm(list=ls())
+rm(list=ls()); gc()
 library(dplyr)
 library(tidyr)
 library(readr)
@@ -9,22 +9,20 @@ library(ggplot2)
 library(snowfall)
 
 # Set file directory
-#filedir <- "/scratch/home/mbiber/data" # shinichi
-#filedir <- "/bigdata_local/mbiber" # ceremony - Mammals
-#filedir <- "/home/mbiber/data" # ceremony - Birds
-#filedir <- "/bigdata/mbiber/data" # Darkstar
-filedir <- "H:/"
+filedir <- "I:/"
 
 # Set taxa
-taxa <- c("Amphibian", "Mammal", "Bird")
-i <- 1
+taxa <- c("Amphibian", "Mammal", "Bird", "Reptile")
+i <- 3
 
 # Model type
 k <- 4; model_type <- c("GAM", "GBM", "MaxEnt", "RF")[k]
 
 # Time steps
-timesteps <- c(1845, 1990, 1995, 2009, 2010, 2020, 2026, 2032, 2048, 2050, 
-               2052, 2056, 2080, 2100, 2150, 2200, 2250)
+if(taxa[i]=="Reptile"){timesteps <- c(1995, 2050, 2080)} else{
+  timesteps <- c(1845, 1990, 1995, 2009, 2010, 2020, 2026, 2032, 2048, 2050, 
+                 2052, 2056, 2080, 2100, 2150, 2200, 2250)
+}
 
 # File directory of results
 predictsPaths <- sapply(timesteps, function(x){
@@ -43,17 +41,29 @@ Modelfiles <- do.call("c", Modelfiles)
 Model1File <- read.csv(list.files(predictsPaths[[1]], full.names=TRUE)[1])
 #head(Model1File)
 
-# Extract species names 
-AUC_data <- lapply(c("GAM", "GBM", "MaxEnt", "RF"), function(model_type){
-  read.csv(paste0(filedir, "/AUCvalues_All_", 
-                  model_type, "_", taxa[i], ".csv.xz"))})
-AUC_data <- do.call(rbind, AUC_data)
 
 # Aggregate the different AUC values from the 10 iterations per species
 # and filter by AUC > 0.7
-AUC_sum <- AUC_data %>% group_by(Species, taxa, model_type) %>% 
-  dplyr::summarise(mean = mean(AUC, na.rm=T)) %>% filter(mean >= 0.7) %>% ungroup() %>% 
-  group_by(Species, taxa) %>% dplyr::summarise(n = n()) %>% filter(n == 4)
+if(taxa[i]=="Reptile"){
+  # Extract species names 
+  AUC_data <- lapply(c("GAM", "GBM"), function(model_type){
+    read.csv(paste0(filedir, "/AUCvalues_All_", 
+                    model_type, "_", taxa[i], ".csv.xz"))})
+  AUC_data <- do.call(rbind, AUC_data)
+  
+  AUC_sum <- AUC_data %>% group_by(Species, taxa, model_type) %>% 
+    dplyr::summarise(mean = mean(AUC, na.rm=T)) %>% filter(mean >= 0.7) %>% ungroup() %>% 
+    group_by(Species, taxa) %>% dplyr::summarise(n = n()) %>% filter(n == 2)
+  } else{
+  # Extract species names 
+  AUC_data <- lapply(c("GAM", "GBM", "MaxEnt", "RF"), function(model_type){
+    read.csv(paste0(filedir, "/AUCvalues_All_", 
+                    model_type, "_", taxa[i], ".csv.xz"))})
+  AUC_data <- do.call(rbind, AUC_data)
+  AUC_sum <- AUC_data %>% group_by(Species, taxa, model_type) %>% 
+    dplyr::summarise(mean = mean(AUC, na.rm=T)) %>% filter(mean >= 0.7) %>% ungroup() %>% 
+    group_by(Species, taxa) %>% dplyr::summarise(n = n()) %>% filter(n == 4)
+}
 spNames <- unique(AUC_sum$Species)
 length(spNames)
 
@@ -78,11 +88,12 @@ length(names_mis)
 ##Get all files for one species
 #files <- unlist(lapply(names_mis, function(species){files[grepl(files, pattern=species)]}))
 #length(files)
+#head(files)
 
 # Check for corrupt files
-#snowfall::sfInit(parallel=TRUE, cpus=ceiling(0.5*parallel::detectCores()))
+#snowfall::sfInit(parallel=TRUE, cpus=ceiling(0.25*parallel::detectCores()))
 #corrupt_files <- snowfall::sfLapply(files, function(x){
-#  data <- tryCatch(load(x), error=function(e) e) #The prediction files
+#  data <- tryCatch(readr::read_csv(x), error=function(e) e) #The prediction files
 #  if(inherits(data, "error")){
 #    return(x)
 #  }
@@ -93,14 +104,15 @@ length(names_mis)
 #file.remove(corrupt_files) # Remove corrupt files
 
 #' Loop through all species names and save summarized prediction
-#sfInit(parallel=TRUE, cpus=ceiling(0.9*parallel::detectCores()))
-#sfLibrary(dplyr); sfLibrary(readr); sfLibrary(tidyr)
-#sfExport(list=c("Modelfiles", "sum_predPath", "model_type", "timesteps")) 
+n <- 10
+sfInit(parallel=TRUE, cpus=n)
+sfLibrary(dplyr); sfLibrary(readr); sfLibrary(tidyr)
+sfExport(list=c("Modelfiles", "sum_predPath", "model_type", "timesteps")) 
 
 #Run in parallel
 lapply(names_mis, function(species){
   ##Get all files for one species
-  spFiles <- Modelfiles[grepl(Modelfiles, pattern=species)]
+  spFiles <- Modelfiles[grepl(Modelfiles, pattern=paste0(species, "_"))]
   
   avg_data <- lapply(timesteps, function(z){
     print(paste(species, z))
@@ -193,11 +205,16 @@ lapply(names_mis, function(species){
     avg_data <- lapply(model_rcp, FUN=function(w){
       sub_data <- data %>% dplyr::select(x, y, contains(w)) %>% drop_na() %>%
         tidyr::gather(var, value, -c(x,y)) %>% 
-        dplyr::group_by(x,y) %>% dplyr::summarise(mean=mean(value, na.rm=TRUE))
+        dplyr::group_by(x,y) %>% dplyr::summarise(mean=round(mean(value, na.rm=TRUE), 3))
       colnames(sub_data) <- c("x", "y", paste0(w, "_", z))
       return(sub_data)
     })
     avg_data <- Reduce(function(x, y) full_join(x, y, by=c("x","y")), avg_data)
+    if(nrow(avg_data)==0){
+      avg_data[1,] <- NA
+      avg_data$x <- as.numeric(avg_data$x)
+      avg_data$y <- as.numeric(avg_data$y)
+    }
     gc()
     return(avg_data)
   })

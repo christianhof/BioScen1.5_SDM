@@ -21,36 +21,28 @@ l <- sapply(packages, require, character.only = TRUE); rm(packages, l)
 #library(BioScen1.5_1)
 
 # Set file directory
-#filedir <- "/scratch/home/mbiber/data" # shinichi
-#filedir2 <- "/bigdata/mbiber" # shinichi
-#filedir <- "/bigdata_local/mbiber" # ceremony - Mammals
-#filedir <- "/home/mbiber/data" # ceremony - Birds
-#filedir <- "/bigdata/mbiber/data" # darkstar
-filedir <- "/media/matt/BS1p5_Amphibian"
-#filedir <- "F:/"
+filedir <- "G:/"
 filedir2 <- filedir
 
 # Set working directory
-#setwd("/scratch/home/mbiber/GitHub/BioScen1.5_1") #shinichi
-#setwd("/home/mbiber/BioScen1.5_1") #ceremony
-#setwd("/scratch/mbiber/BioScen1.5_1") #darkstar
-setwd("/home/matt/Documents/Github/BioScen1.5_SDM")
+setwd("C:/Users/admin/Documents/GitHub/BioScen1.5_SDM")
 
 ########################################
 
 # Set taxa
-taxa <- c("Amphibian", "Mammal", "Bird")
-i <- 1
+taxa <- c("Amphibian", "Mammal", "Bird", "Reptile")
+i <- 4
 
 # Model type
-model_type <- c("GAM", "GBM", "MaxEnt", "RF")[2]
+model_type <- c("GAM", "GBM", "MaxEnt", "RF")[1]
 
 #-#-# Load in baseline and realm data #-#-#
 
 ## Load climate predictor combs
 climCombs <- list(c("bio4", "bio5", "bio18", "bio19"),
                   c("bio4","bio5","bio12","bio15"),
-                  c("bio4","bio5","bio12","bio15")) 
+                  c("bio4","bio5","bio12","bio15"),
+                  c("bio4", "bio5", "bio12", "bio15")) 
 climCombs <- climCombs[i]
 
 ## Load climate data and blocks
@@ -67,8 +59,10 @@ realm_coordinates <- read.csv("data/realm_coordinates.csv")
 #-#-# Set filepath for results and future climate #-#-#
 
 ## Output file locations
-timesteps <- c(1845, 1990, 1995, 2009, 2010, 2020, 2026, 2032, 2048, 2050, 2052, 2056, 
-               2080, 2100, 2150, 2200, 2250)
+if(taxa[i]=="Reptile"){timesteps <- c(1995, 2050, 2080)} else{
+  timesteps <- c(1845, 1990, 1995, 2009, 2010, 2020, 2026, 2032, 2048, 2050, 
+                 2052, 2056, 2080, 2100, 2150, 2200, 2250)
+}
 
 # Save future projection files here
 predPaths <- lapply(timesteps, function(x) 
@@ -90,7 +84,16 @@ modelObjectLocation <- paste0(filedir2, "/", taxa[i], "_", model_type, "_Output/
 
 ## Get all climate files (csv with xy and BioClimVar)
 climAll <- list.files(paste0(future.data.root)) #All climate data
-climAll <- climAll[!grepl(climAll, pattern="rcp85")] # Remove rcp85
+
+# Identify RCP85 for 2050 and 2080
+climAll3 <- climAll[grepl(climAll, pattern="rcp85_2050")]
+climAll4 <- climAll[grepl(climAll, pattern="rcp85_2080")]
+
+# Remove rcp85
+climAll <- climAll[!grepl(climAll, pattern="rcp85")]
+
+# Add only RCP85 for 2050 and 2080
+climAll <- c(climAll, climAll3, climAll4)
 
 #-#-# Get the realm neighbour grid #-#-#
 Rneighbours <- read.csv("data/realm_neighbours.csv")
@@ -129,16 +132,28 @@ spNames <- sapply(basename(modsAll), function(x){
 })
 length(spNames)
 
-AUC_data <- lapply(c("GAM", "GBM", "MaxEnt", "RF"), function(model_type){
-  read.csv(paste0(filedir, "/AUCvalues_All_", 
-                  model_type, "_", taxa[i], ".csv.xz"))})
-AUC_data <- do.call(rbind, AUC_data)
-
 # Aggregate the different AUC values from the 10 iterations per species
 # and filter by AUC > 0.7
-AUC_sum <- AUC_data %>% group_by(Species, taxa, model_type) %>% 
-  dplyr::summarise(mean = mean(AUC, na.rm=T)) %>% filter(mean >= 0.7) %>% ungroup() %>% 
-  group_by(Species, taxa) %>% dplyr::summarise(n = n()) %>% filter(n == 4)
+if(taxa[i]=="Reptile"){
+  # Extract species names 
+  AUC_data <- lapply(c("GAM", "GBM"), function(model_type){
+    read.csv(paste0(filedir, "/AUCvalues_All_", 
+                    model_type, "_", taxa[i], ".csv.xz"))})
+  AUC_data <- do.call(rbind, AUC_data)
+  
+  AUC_sum <- AUC_data %>% group_by(Species, taxa, model_type) %>% 
+    dplyr::summarise(mean = mean(AUC, na.rm=T)) %>% filter(mean >= 0.7) %>% ungroup() %>% 
+    group_by(Species, taxa) %>% dplyr::summarise(n = n()) %>% filter(n == 2)
+} else{
+  # Extract species names 
+  AUC_data <- lapply(c("GAM", "GBM", "MaxEnt", "RF"), function(model_type){
+    read.csv(paste0(filedir, "/AUCvalues_All_", 
+                    model_type, "_", taxa[i], ".csv.xz"))})
+  AUC_data <- do.call(rbind, AUC_data)
+  AUC_sum <- AUC_data %>% group_by(Species, taxa, model_type) %>% 
+    dplyr::summarise(mean = mean(AUC, na.rm=T)) %>% filter(mean >= 0.7) %>% ungroup() %>% 
+    group_by(Species, taxa) %>% dplyr::summarise(n = n()) %>% filter(n == 4)
+}
 spNames <- unique(spNames[spNames %in% AUC_sum$Species])
 length(spNames)
 
@@ -155,7 +170,7 @@ length(modsMissing); class(modsMissing)
 
 # Check for corrupt files
 #corrupt_files <- lapply(modsMissing, function(x){
-#  data <- tryCatch(get(load(x)), error=function(e) e) #The prediction files
+ # data <- tryCatch(get(load(x)), error=function(e) e) #The prediction files
 # if(inherits(data, "error")){
 #    return(x)
 #  } else{
@@ -168,14 +183,12 @@ length(modsMissing); class(modsMissing)
 
 #-#-# Run prediction function for all species #-#-#
 ## Setup snowfall for parallisation
-#(n <- ceiling(0.5*parallel::detectCores()))
-#sfInit(parallel=TRUE, cpus=n)
-#sfLibrary(mgcv); sfLibrary(gbm); sfLibrary(matrixStats); sfLibrary(randomForest);
-#sfLibrary(dismo)#; sfLibrary(rJava)
-#sfExport(list=c("predict_func", "climAll", "future.data.root", "modsAll", 
-#                "modelObjectLocation", "timesteps", "model_type",
-#                "climCombs", "predPaths", "bufferpath","realm_coordinates","Rneighbours"))
-lapply(modsMissing[16:35], function(mods){
+(n <- ceiling(0.95*parallel::detectCores()))
+sfInit(parallel=TRUE, cpus=n)
+sfLibrary(mgcv); sfLibrary(gbm); sfLibrary(matrixStats); sfLibrary(randomForest); sfLibrary(dismo)#; sfLibrary(rJava)
+sfExport(list=c("predict_func", "climAll", "future.data.root", "modsAll", "modelObjectLocation", "timesteps", "model_type",
+                "climCombs", "predPaths", "bufferpath","realm_coordinates","Rneighbours"))
+sfLapply(modsMissing, function(mods){
   spName <- paste(strsplit(basename(mods),split="_")[[1]][1:2],collapse="_") # Extract species name
   pseudoabsrep <- strsplit(basename(mods),split="_",fixed=TRUE)[[1]][3] # Get PA number
   if(any(!file.exists(sapply(predPaths, function(x) paste(x, "/", spName,"_",pseudoabsrep,"_proj.csv.xz", sep=""))))){ # Set to first time period folder
@@ -241,6 +254,5 @@ lapply(modsMissing[16:35], function(mods){
       })
     }
   }
-})
-sfStop()
-q(save="no")
+}); sfStop()
+#q(save="no")

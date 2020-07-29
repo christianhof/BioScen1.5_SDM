@@ -12,17 +12,15 @@ if(length(new.packages)) install.packages(new.packages); rm(new.packages)
 l <- sapply(packages, require, character.only = TRUE); rm(packages, l)
 
 # Set file directory
-#filedir <- "/scratch/home/mbiber/data" # shinichi
-#filedir <- "/bigdata/mbiber/data" # darkstar
-filedir <- "/bigdata_local/mbiber" # ceremony - mammals
-#filedir <- "/home/mbiber/data" # ceremony - birds
+filedir <- "G:/"
+#filedir <- "/dss/dsshome1/lxc09/ge82nob2/" # LRZ
 
 # Set taxa
-taxa <- c("Amphibian", "Mammal", "Bird")
-i <- 2
+taxa <- c("Amphibian", "Mammal", "Bird", "Reptile")
+i <- 3
 
 # Model type
-k <- 4; model_type <- c("GAM", "GBM", "MaxEnt", "RF")[k]
+k <- 3; model_type <- c("GAM", "GBM", "MaxEnt", "RF")[k]
 
 # Final species names
 spNames <- sapply(list.files(paste0(filedir, "/", taxa[i], "_", 
@@ -36,42 +34,59 @@ predFiles <- list.files(paste0(filedir, "/", taxa[i], "_", model_type, "_results
 predFiles <- sapply(spNames, function(x) predFiles[grepl(predFiles, pattern=x)][[1]])
 length(predFiles)
 
-# Read csv files
-sfInit(parallel=TRUE, cpus=ceiling(0.75*parallel::detectCores()))
-predData <- sfLapply(predFiles, function(x){readr::read_csv(x)})
-sfStop()
-#predData <- dplyr::bind_rows(predData)
-predData <- data.table::rbindlist(predData)
-
-# Calculate summed probability and save to .csv.xz file
-lapply(c("presence", "dispersal1", "dispersal2", "dispersal3", "dispersal4", "fulldisp"), function(disp){
-  if(!file.exists(paste0(filedir, "/", taxa[i], "_prob_", 
-                         model_type, "_", disp, ".csv.xz"))){
-    if(disp != "fulldisp"){
-      sumProb_nodisp <- predData %>% group_by(x, y) %>% filter(1 == !!as.name(disp)) %>% 
-        select(x,y,GFDL.ESM2M_piControl_1845:MIROC5_rcp26_2250) %>% 
-        mutate_if(is.character, as.numeric) %>% 
-        summarise_all(sum, na.rm=T) %>% as.data.frame()
-      readr::write_csv(sumProb_nodisp, paste0(filedir, "/", taxa[i], "_prob_", 
-                                              model_type, "_", disp, ".csv.xz"))
-    } else{
-      sumProb_disp <- predData %>% group_by(x, y) %>% 
-        select(x,y,GFDL.ESM2M_piControl_1845:MIROC5_rcp26_2250) %>% 
-        mutate_if(is.character, as.numeric) %>% 
-        summarise_all(sum, na.rm=T) %>% as.data.frame()
-      readr::write_csv(sumProb_disp, paste0(filedir, "/", taxa[i], "_prob_", 
-                                            model_type, "_fulldisp.csv.xz"))
-    }
-  }
-  return(NULL)
-}); q(save="no")
+if(taxa[i] == "Reptile"){
+  #Read csv files and calculate summed probability
+  n <- 10
+  predFiles <- split(predFiles, sort(1:length(predFiles)%%n))
+  predData <- lapply(1:length(predFiles), function(x){
+    print(x)
+    vroom::vroom(predFiles[[x]]) %>% group_by(x, y, presence, dispersal1, dispersal2, dispersal3, dispersal4, fulldisp) %>% 
+      select(EWEMBI_1995:MIROC5_rcp85_2080) %>% 
+      mutate_if(is.character, as.numeric) %>% 
+      summarise_all(sum, na.rm=T) %>% as.data.frame() %>% ungroup()
+  })
+  dat <- data.table::rbindlist(predData) %>% 
+    group_by(x, y, presence, dispersal1, dispersal2, dispersal3, dispersal4, fulldisp) %>% 
+    select(EWEMBI_1995:MIROC5_rcp85_2080) %>% mutate_if(is.character, as.numeric) %>% 
+    summarise_all(sum, na.rm=T) %>% as.data.frame() %>% ungroup()
+  rm(predData); invisible(gc())
+  
+  # Save summed probability to .csv.xz file
+  lapply(c("presence", "dispersal1", "dispersal2", "dispersal3", "dispersal4", "fulldisp"), function(disp){
+    dat %>% ungroup() %>% filter(1 == !!as.name(disp)) %>% group_by(x,y) %>% select(EWEMBI_1995:MIROC5_rcp85_2080) %>% 
+      mutate_if(is.character, as.numeric) %>% summarise_all(sum, na.rm=T) %>% as.data.frame() %>% ungroup() %>%
+      readr::write_csv(paste0(filedir, "/", taxa[i], "_prob_", model_type, "_", disp, ".csv.xz"))
+    return(NULL)
+  }); rm(data); invisible(gc())
+} else{
+  #Read csv files and calculate summed probability
+  n <- 10
+  predFiles <- split(predFiles, sort(1:length(predFiles)%%n))
+  predData <- lapply(1:length(predFiles), function(x){
+    print(x)
+    vroom::vroom(predFiles[[x]]) %>% group_by(x, y, presence, dispersal1, dispersal2, dispersal3, dispersal4, fulldisp) %>% 
+      select(GFDL.ESM2M_piControl_1845:MIROC5_rcp26_2250) %>% 
+      mutate_if(is.character, as.numeric) %>% 
+      summarise_all(sum, na.rm=T) %>% as.data.frame() %>% ungroup()
+  })
+  dat <- data.table::rbindlist(predData) %>% 
+    group_by(x, y, presence, dispersal1, dispersal2, dispersal3, dispersal4, fulldisp) %>% 
+    select(GFDL.ESM2M_piControl_1845:MIROC5_rcp26_2250) %>% mutate_if(is.character, as.numeric) %>% 
+    summarise_all(sum, na.rm=T) %>% as.data.frame() %>% ungroup()
+  rm(predData); invisible(gc())
+  
+  # Save summed probability to .csv.xz file
+  lapply(c("presence", "dispersal1", "dispersal2", "dispersal3", "dispersal4", "fulldisp"), function(disp){
+    dat %>% ungroup() %>% filter(1 == !!as.name(disp)) %>% group_by(x,y) %>% select(GFDL.ESM2M_piControl_1845:MIROC5_rcp26_2250) %>% 
+      mutate_if(is.character, as.numeric) %>% summarise_all(sum, na.rm=T) %>% as.data.frame() %>% ungroup() %>%
+      readr::write_csv(paste0(filedir, "/", taxa[i], "_prob_", model_type, "_", disp, ".csv.xz"))
+    return(NULL)
+  }); rm(dat); invisible(gc())
+}
 
 ##############################
 
 # Save summed probability to .nc file
-
-# Empty R environment
-rm(list=ls())
 
 # Load libraries
 packages <- c("dplyr", "snowfall", "tidyr", "ncdf4", "readr")
@@ -82,17 +97,16 @@ if(length(new.packages)) install.packages(new.packages); rm(new.packages)
 l <- sapply(packages, require, character.only = TRUE); rm(packages, l)
 
 # Set file directory
-#filedir <- "/scratch/home/mbiber/data" # shinichi
-#filedir <- "/scratch/mbiber/data" # darkstar
-#filedir <- "/bigdata_local/mbiber" # ceremony
-filedir <- "/home/matt/Documents"
+filedir <- "D:/"
+dir.create(paste0(filedir, "OutputData"))
+dir.create(paste0(filedir, "OutputData/biodiversity"))
 
 # Set taxa
 taxa <- c("Amphibian", "Mammal", "Bird")
-i <- 1
+i <- 3
 
 # Model type
-k <- 1; model_type <- c("GAM", "GBM", "MaxEnt", "RF")[k]
+k <- 4; model_type <- c("GAM", "GBM", "MaxEnt", "RF")[k]
 
 # Set up NetCDF file combinations
 df <- expand.grid(rcp=c("rcp26", "rcp60", "historical", "piControl"), 
@@ -188,14 +202,13 @@ sfLapply(1:nrow(df), function(rcp_mod){
   })
   # Close your new file to finish writing
   nc_close(nc); rm(nc)
-})
-sfStop()
+}); sfStop()
+rm(list=ls()); invisible(gc())
 
 # Test NetCDF file
 library(raster)
-#test <- stack("E://OutputData/biodiversity/
-#              bioscen1.5-sdm_EWEMBI_historical_amphibian-sumprob-nodisp.nc4")
-#plot(test[[1]])
+test <- stack("D:/OutputData/biodiversity/bioscen1.5-sdm-gam_ipsl-cm5a-lr_ewembi_rcp60_nosoc_co2_amphibiansumprob_global_30year-mean_2009_2080.nc4")
+plot(test[[4]])
 
 ########################################
 
